@@ -1,0 +1,19 @@
+{
+  "name": "d365-levelup-bookmarklet",
+  "version": "1.0.0",
+  "description": "Level Up for Dynamics 365 / Power Apps as a bookmarklet",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.vendor.json"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.12",
+    "typescript": "5.9.3"
+  }
+}
