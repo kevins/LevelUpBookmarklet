@@ -4,7 +4,7 @@ A bookmarklet version of **Level Up for Dynamics 365 / Power Apps** for people w
 
 This bookmarklet is based directly on code from the original open-source Level Up project, with modifications and additional buttons/tools added by me.
 
-<img width="402" height="919" alt="image" src="https://github.com/user-attachments/assets/223fb02a-557c-4414-b118-3340c2df6563" />
+<img width="406" alt="The Level Up sidebar in a Dynamics 365 form" src="screenshot.png" />
 
 
 ## Original Project
