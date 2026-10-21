@@ -256,7 +256,7 @@ async function showAllFields(ctx: DynamicsContext, deps: ActionDependencies) {
   others.sort((a, b) => String(a[0]).localeCompare(String(b[0]))); rows.push(...others);
   const where = `${entity}${saved ? ` · ${id}` : id ? '' : ' · new record'}`;
   const subtitle = problem ? `${where} · ${formCount} on the form` : saved ? `${where} · ${formCount} on the form, ${others.length} more on the record` : `${where} · ${formCount} on the form, ${others.length} more columns (no values until it is saved)`;
-  deps.ui.table(`All Fields (${rows.length})`, ['Label', 'Logical Name', 'Type', 'Raw Value', 'Formatted Value', 'On Form?', 'Dirty?', 'Required?', 'Visible?', 'Disabled?'], rows, true, { subtitle });
+  deps.ui.table(`All Fields (${rows.length})`, ['Label', 'Logical Name', 'Type', 'Raw Value', 'Formatted Value', 'On Form?', 'Dirty?', 'Required?', 'Visible?', 'Disabled?'], rows, true, { subtitle, widths: ['', '', '120px', '', '', '104px', '84px', '108px', '92px', '104px'] });
   return problem ? { message: `Only the form's fields are shown: the record's other fields could not be read (${problem})`, kind: 'warning' as const } : { message: `${rows.length} fields displayed`, kind: 'info' as const };
 }
 

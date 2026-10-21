@@ -78,7 +78,7 @@ export async function auditHistory(ctx: DynamicsContext, deps: ActionDependencie
     for (const [label, input] of [['Search loaded history', search], ['Changed by', user], ['Event', action], ['From date', from], ['To date', to]] as const) {
       const wrapper = element('label', label); input.className = 'd365lu-input'; input.setAttribute('aria-label', label); wrapper.append(input); controls.append(wrapper);
     }
-    const status = element('p', '', 'audit-note'), note = element('p', '', 'audit-note'), error = element('p', '', 'audit-error'), results = element('div'), pager = element('div', '', 'd365lu-inline');
+    const status = element('p', '', 'audit-note'), note = element('p', '', 'audit-note'), error = element('p', '', 'audit-error'), results = element('div', '', 'audit-results'), pager = element('div', '', 'd365lu-inline');
     status.setAttribute('role', 'status'); error.setAttribute('role', 'alert');
     pager.className = 'd365lu-pager';
     const previous = element('button', 'Previous', 'd365lu-btn sm'), nextView = element('button', 'Next', 'd365lu-btn sm'), viewCount = element('span', '', 'audit-note'); previous.type = nextView.type = 'button'; pager.append(viewCount, previous, nextView);
@@ -138,7 +138,7 @@ export async function auditHistory(ctx: DynamicsContext, deps: ActionDependencie
       if (signature === cardsSignature) return; cardsSignature = signature;
       results.replaceChildren();
       for (const entry of visible) {
-        const summary = entry.summary, card = element('section', '', 'audit-card'), heading = element('div', '', 'audit-heading'), date = new Date(String(summary.createdon ?? ''));
+        const summary = entry.summary, card = element('section', '', `audit-card tone-${({ 1: 'ok', 2: 'brand', 3: 'bad' } as Record<string, string>)[String(entry.summary.action)] ?? 'other'}`), heading = element('div', '', 'audit-heading'), date = new Date(String(summary.createdon ?? ''));
         const time = element('time', when(summary)); if (!Number.isNaN(date.getTime())) time.dateTime = date.toISOString();
         const who = userName(summary), caller = userName(summary, true);
         const tone = ({ 1: ' ok', 2: ' brand', 3: ' bad' } as Record<string, string>)[String(summary.action)] ?? '';

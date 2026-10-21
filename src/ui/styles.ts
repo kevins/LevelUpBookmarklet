@@ -282,6 +282,45 @@ button.d365lu-link{padding:0;border:0;background:none;font:inherit;cursor:pointe
 .d365lu-table{width:100%;border-collapse:separate;border-spacing:0;table-layout:fixed;background:var(--bg1);font-size:13px;line-height:18px}
 .d365lu-table th,.d365lu-table td{box-sizing:border-box;text-align:left;vertical-align:top;color:var(--fg1);overflow:hidden;text-overflow:ellipsis}
 .d365lu-table th{position:sticky;top:0;z-index:1;height:32px;padding:7px 12px 7px 16px;background:var(--bg3);border-bottom:1px solid var(--s1);font-weight:600;white-space:nowrap}
+.d365lu-table-area .d365lu-table th{top:-16px}
+.d365lu-col-resize{position:absolute;top:0;right:0;z-index:2;width:9px;height:100%;cursor:col-resize;touch-action:none;outline:0}
+.d365lu-col-resize::after{content:"";position:absolute;top:8px;bottom:8px;right:3px;width:2px;border-radius:1px;background:transparent;transition:background .1s}
+.d365lu-table thead:hover .d365lu-col-resize::after{background:var(--s1)}
+.d365lu-table thead .d365lu-col-resize:hover::after,.d365lu-col-resize:focus-visible::after{background:var(--brand-fg);top:2px;bottom:2px}
+/* Column menus: each heading is a button that opens a sort and filter menu, as in Excel and the Unmanaged Layer Scanner. */
+.d365lu-table thead th.d365lu-th-menu{padding:0 4px;vertical-align:middle}
+.d365lu-hb{display:flex;align-items:center;gap:4px;width:100%;min-width:0;height:30px;margin:0;padding:0 8px;border:0;border-radius:4px;background:none;color:var(--fg1);font:inherit;font-weight:600;text-align:left;cursor:pointer}
+.d365lu-hb:hover,.d365lu-hb[aria-expanded=true]{background:var(--bg4)}
+.d365lu-hb:focus-visible{outline:2px solid var(--focus-o);outline-offset:-2px}
+.d365lu-hb .l{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.d365lu-hb .ind{display:flex;align-items:center;gap:2px;flex:none;color:var(--fg3)}
+.d365lu-hb .ind .on{display:grid;color:var(--brand-fg)}
+.d365lu-hb svg{display:block}
+.d365lu-table.d365lu-measuring td,.d365lu-table.d365lu-measuring th{white-space:nowrap;overflow-wrap:normal}.d365lu-table.d365lu-measuring .d365lu-copy-cell{display:inline-flex}
+.d365lu-clear-filters{height:24px;margin-left:auto;padding:0 8px;font-size:12px}
+.d365lu-clear-filters[hidden]{display:none}
+.d365lu-table .d365lu-no-match .d365lu-btn{margin-left:8px;height:28px;font-size:13px}
+.d365lu-pop{position:absolute;z-index:120;box-sizing:border-box;overflow:auto;width:300px;max-width:calc(100% - 16px);display:flex;flex-direction:column;padding:4px 0;border:1px solid var(--edge);border-radius:6px;background:var(--bg1);color:var(--fg1);box-shadow:var(--sh8);font-size:14px;line-height:20px;font-weight:400;text-align:left;animation:d365lu-fade .12s ease-out}
+.d365lu-pop[hidden]{display:none}
+.d365lu-pop:focus{outline:0}
+.d365lu-pop .mi{display:flex;align-items:center;gap:8px;flex:none;min-height:32px;margin:0 4px;padding:0 8px;border:0;border-radius:4px;background:none;color:var(--fg1);font:inherit;text-align:left;cursor:pointer}
+.d365lu-pop .mi[hidden]{display:none}
+.d365lu-pop .mi:hover,.d365lu-pop .mi:focus-visible{background:var(--bg3);outline:0}
+.d365lu-pop .mi .ck{display:grid;width:16px;color:var(--brand-fg)}
+.d365lu-pop .mi .si{display:grid;color:var(--fg3)}
+.d365lu-pop .sep{flex:none;height:1px;margin:4px 0;background:var(--s2)}
+.d365lu-pop .d365lu-table-search{flex:none;margin:4px 12px}
+.d365lu-pop .pop-list{flex:1;min-height:64px;overflow:auto;padding:2px 4px}
+.d365lu-pop .pv{display:flex;align-items:center;gap:8px;min-height:30px;padding:0 8px;border-radius:4px;cursor:pointer}
+.d365lu-pop .pv:hover{background:var(--bg3)}
+.d365lu-pop .pv input{flex:none;width:16px;height:16px;margin:0;accent-color:var(--brand);cursor:pointer}
+.d365lu-pop .pv .v{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.d365lu-pop .pv .n{flex:none;color:var(--fg3);font-size:12px}
+.d365lu-pop .pv-all{font-weight:600}
+.d365lu-pop .pop-more{padding:6px 12px;color:var(--fg3);font-size:12px;line-height:16px}
+.d365lu-pop .pop-foot{display:flex;flex:none;align-items:center;gap:8px;margin-top:4px;padding:8px 12px 4px;border-top:1px solid var(--s2)}
+.d365lu-pop .pop-foot .spacer{flex:1}
+.d365lu-resizing,.d365lu-resizing *{cursor:col-resize!important;user-select:none}
 .d365lu-table td{padding:7px 12px 7px 16px;border-bottom:1px solid var(--s3);white-space:normal;overflow-wrap:anywhere}
 .d365lu-table tbody tr:last-child td{border-bottom:0}
 .d365lu-table tbody tr:hover td{background:var(--row-h)}
@@ -301,8 +340,13 @@ div.d365lu-result .d365lu-table td{max-width:320px;white-space:nowrap}
 .d365lu-audit .audit-note{margin:0;font-size:12px;line-height:16px;color:var(--fg3)}
 .d365lu-audit .audit-error{margin:0;padding:8px 12px;border:1px solid var(--red-s);border-radius:4px;background:var(--red-bg);color:var(--red);font-size:13px;line-height:18px;white-space:pre-wrap}
 .d365lu-audit .audit-error:empty{display:none}
-.d365lu-audit .audit-card{margin:0;border:1px solid var(--s2);border-radius:8px;background:var(--bg1);overflow:clip}
-.d365lu-audit .audit-heading{display:flex;flex-wrap:wrap;align-items:center;gap:2px 8px;padding:8px 12px;background:var(--bg2);border-bottom:1px solid var(--s3);font-size:12px;line-height:16px;color:var(--fg3)}
+.d365lu-audit .audit-results{display:flex;flex-direction:column;gap:14px}
+.d365lu-audit .audit-card{--tone:var(--fg3);--tone-bg:var(--bg4);margin:0;border:1px solid var(--s1);border-radius:8px;background:var(--bg1);box-shadow:0 1px 3px rgba(0,0,0,.08);overflow:clip}
+.d365lu-audit .audit-card.tone-ok{--tone:var(--green);--tone-bg:var(--green-bg)}
+.d365lu-audit .audit-card.tone-brand{--tone:var(--brand-fg);--tone-bg:var(--brand-bg)}
+.d365lu-audit .audit-card.tone-bad{--tone:var(--red);--tone-bg:var(--red-bg)}
+/* Each change starts with a tinted bar and a stripe in the colour of its kind, so one change ends where the next begins. */
+.d365lu-audit .audit-heading{display:flex;flex-wrap:wrap;align-items:center;gap:2px 8px;padding:10px 12px 10px 16px;background:var(--tone-bg);border-bottom:1px solid var(--s1);box-shadow:inset 4px 0 0 var(--tone);font-size:12px;line-height:16px;color:var(--fg2)}
 .d365lu-audit .audit-user{font-weight:600}
 .d365lu-audit .audit-user:hover,.d365lu-audit .audit-user:focus-visible{text-decoration:underline}
 .d365lu-audit .audit-heading strong:not(.d365lu-chip){font-size:14px;line-height:20px;font-weight:600;color:var(--fg1)}
@@ -400,7 +444,7 @@ div.d365lu-result .d365lu-table td{max-width:320px;white-space:nowrap}
 @keyframes d365lu-spin{to{transform:rotate(360deg)}}
 @keyframes d365lu-ind{from{transform:translateX(-100%)}to{transform:translateX(340%)}}
 @keyframes d365lu-toast-out{to{opacity:0;transform:translateY(8px)}}
-@media (prefers-reduced-motion:reduce){.d365lu-modal-layer,.d365lu-modal,.d365lu-toast,.d365lu-toast.out,.d365lu-modal-status .d365lu-toast,.d365lu-modal-status .d365lu-toast.out{animation:none}.d365lu-progress i{animation:none;width:100%;opacity:.5}}
+@media (prefers-reduced-motion:reduce){.d365lu-modal-layer,.d365lu-modal,.d365lu-toast,.d365lu-toast.out,.d365lu-modal-status .d365lu-toast,.d365lu-modal-status .d365lu-toast.out,.d365lu-pop{animation:none}.d365lu-progress i{animation:none;width:100%;opacity:.5}}
 .d365lu-prompt-body{padding:0}
 .d365lu-sort-slot .d365lu-tile{opacity:.35;border-style:dashed;border-color:var(--purple);box-shadow:none!important;transform:none!important}
 .d365lu-sort-slot .d365lu-fav,.d365lu-sort-slot .d365lu-age{visibility:hidden}

@@ -59,6 +59,8 @@ export interface UiTable {
   description?: string;
   headers: string[];
   rows: TableCell[][];
+  /** Starting column widths (CSS, e.g. '15%'); people can drag them wider or narrower. */
+  widths?: string[];
 }
 
 export interface DialogButton {
@@ -97,7 +99,7 @@ export interface UiBridge {
   /** danger: the OK button is red and Cancel has focus. */
   confirm(title: string, message: string, options?: { ok?: string; danger?: boolean }): Promise<boolean>;
   details(title: string, sections: { title?: string; rows: InfoRow[] }[], buttons?: DialogButton[], options?: { subtitle?: string; size?: DialogSize }): void;
-  table(title: string, columns: string[], rows: TableCell[][], searchable?: boolean, options?: { subtitle?: string }): void;
+  table(title: string, columns: string[], rows: TableCell[][], searchable?: boolean, options?: { subtitle?: string; widths?: string[] }): void;
   tableGroup(title: string, tables: UiTable[], searchable?: boolean, options?: { subtitle?: string }): void;
   dialog(title: string, setup: (body: HTMLElement, footer: HTMLElement, close: () => void) => void | (() => void), options?: DialogOptions): void;
 }
