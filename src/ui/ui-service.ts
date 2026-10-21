@@ -290,6 +290,7 @@ function tableSection(config: UiTable, index: number, searchable: boolean, ui: U
 function format(value: unknown): string {
   if (value == null) return '';
   if (typeof value === 'string') return value;
+  if (Object.prototype.toString.call(value) === '[object Date]') { const date = value as Date; return Number.isNaN(date.getTime()) ? String(date) : date.toISOString(); }
   if (typeof value === 'object') { try { return JSON.stringify(value, null, 2); } catch { return String(value); } }
   return String(value);
 }

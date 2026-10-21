@@ -1,4 +1,5 @@
 import type { ColumnMetadata, DynamicsContext, TableMetadata } from './types';
+import type { DateBehavior, DateColumn } from './dates';
 import { DynamicsApi } from './dynamics-api';
 
 const TABLE_SELECT = 'MetadataId,LogicalName,SchemaName,EntitySetName,ObjectTypeCode,PrimaryIdAttribute,PrimaryNameAttribute,DisplayName,DisplayCollectionName,OwnershipType,IsCustomEntity,IsActivity,IsActivityParty,IsAuditEnabled,IsCustomizable,IsManaged,IntroducedVersion,ChangeTrackingEnabled,EntityColor';
@@ -18,6 +19,7 @@ export class MetadataService {
   // Settled results, and requests still in flight: several tools asking for the same table at once share one request.
   private tables = new Map<string, Promise<TableMetadata>>();
   private columns = new Map<string, Promise<ColumnMetadata[]>>();
+  private dates = new Map<string, Promise<Map<string, DateColumn>>>();
   private currentEnvironment = '';
 
   constructor(private api: DynamicsApi, private context: () => Promise<DynamicsContext>) {}
@@ -45,5 +47,14 @@ export class MetadataService {
     return this.once(this.columns, await this.key(entity), async () => (await this.api.get<{ value: ColumnMetadata[] }>(`EntityDefinitions(LogicalName='${literal(entity)}')/Attributes?$select=${COLUMN_SELECT}`)).value ?? []);
   }
 
-  clear(): void { this.tables.clear(); this.columns.clear(); }
+  /** Each date column's behaviour (User Local, Date Only, Time-Zone Independent), so dates show as the form shows them. */
+  async getDateColumns(entity: string): Promise<Map<string, DateColumn>> {
+    return this.once(this.dates, await this.key(entity), async () => {
+      const rows = (await this.api.get<{ value: { LogicalName: string; DateTimeBehavior?: { Value?: string } | null; Format?: string | null }[] }>(`EntityDefinitions(LogicalName='${literal(entity)}')/Attributes/Microsoft.Dynamics.CRM.DateTimeAttributeMetadata?$select=LogicalName,DateTimeBehavior,Format`)).value ?? [];
+      const behavior = (value: unknown): DateBehavior => value === 'DateOnly' || value === 'TimeZoneIndependent' ? value : 'UserLocal';
+      return new Map(rows.map(row => [row.LogicalName, { behavior: behavior(row.DateTimeBehavior?.Value), dateOnly: row.Format === 'DateOnly' }]));
+    });
+  }
+
+  clear(): void { this.tables.clear(); this.columns.clear(); this.dates.clear(); }
 }

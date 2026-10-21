@@ -1,4 +1,6 @@
 import type { ActionDependencies, DynamicsContext, DynamicObject } from '../core/types';
+import { formatStoredDate, isDateText } from '../core/dates';
+import type { DateColumn } from '../core/dates';
 import { recordUrl } from '../core/url-service';
 import { copyText } from '../core/xrm-helpers';
 
@@ -16,6 +18,23 @@ function parse(xml: string): XMLDocument {
   const document = new DOMParser().parseFromString(xml, 'application/xml');
   if (document.querySelector('parsererror')) throw new Error('FetchXML is malformed.');
   return document;
+}
+
+/**
+ * Where each result column of a query comes from: { table, field } by the name the Web API gives it. A column
+ * alias names it alone; a field of an aliased link-entity is `alias.field`; otherwise the field name. Columns of
+ * all-attributes come back by field name ('' maps link-entity aliases to their tables for those).
+ */
+export function fetchColumns(xml: string): { columns: Map<string, { table: string; field: string }>; tables: Map<string, string> } {
+  const document = parse(xml); const columns = new Map<string, { table: string; field: string }>(), tables = new Map<string, string>();
+  const root = document.querySelector('fetch > entity')?.getAttribute('name')?.trim(); if (root) tables.set('', root);
+  document.querySelectorAll('link-entity').forEach(link => { const alias = link.getAttribute('alias')?.trim(), name = link.getAttribute('name')?.trim(); if (alias && name) tables.set(alias, name); });
+  document.querySelectorAll('attribute').forEach(attribute => {
+    const owner = attribute.parentElement, field = attribute.getAttribute('name')?.trim(), table = owner?.getAttribute('name')?.trim(); if (!owner || !field || !table) return;
+    const alias = attribute.getAttribute('alias')?.trim(), link = owner.localName === 'link-entity' ? owner.getAttribute('alias')?.trim() : '';
+    const key = alias || (owner.localName === 'link-entity' ? (link ? `${link}.${field}` : '') : field); if (key) columns.set(key, { table, field });
+  });
+  return { columns, tables };
 }
 
 export function extractFetchEntity(xml: string): string {
@@ -88,10 +107,12 @@ export function openFetchXmlRunner(ctx: DynamicsContext, deps: ActionDependencie
       columns.forEach(column => { const th = document.createElement('th'); const [alias, name] = column.includes('.') ? column.split(/\.(.*)/) : ['', column]; const shown = /^_(.+)_value$/.exec(name ?? '')?.[1] ?? name ?? column; th.textContent = alias ? `${alias} · ${shown}` : shown; th.title = column; head.append(th); });
       const tbody = element.createTBody();
       rows.slice(0, SHOWN_ROWS).forEach(row => { const tr = tbody.insertRow(); columns.forEach(column => {
-        const td = tr.insertCell(); const value = row[column]; const shown = row[`${column}${FORMATTED}`] ?? value; const target = row[`${column}${LOOKUP}`];
+        const td = tr.insertCell(); const value = row[column]; const target = row[`${column}${LOOKUP}`];
+        const date = dates.get(column); const asDate = date ? formatStoredDate(value, date) : undefined;
+        const shown = asDate ?? row[`${column}${FORMATTED}`] ?? value;
         const text = shown == null ? '' : typeof shown === 'object' ? JSON.stringify(shown) : String(shown);
         if (typeof target === 'string' && typeof value === 'string') { try { const link = document.createElement('a'); link.href = recordUrl(ctx, target, value); link.target = '_blank'; link.rel = 'noopener'; link.textContent = text; link.title = `${target} ${value}`; td.append(link); return; } catch { /* plain text below */ } }
-        td.textContent = text; if (shown !== value && value != null) td.title = String(value);
+        td.textContent = text; if (shown !== value && value != null && !asDate && !isDateText(value)) td.title = String(value); // dates: no UTC tooltip
       }); });
       table.append(element);
       if (rows.length > SHOWN_ROWS) { const note = document.createElement('p'); note.className = 'd365lu-quiet'; note.textContent = `Showing the first ${SHOWN_ROWS} of ${rows.length} rows. Copy results copies all of them.`; table.append(note); }
@@ -105,6 +126,18 @@ export function openFetchXmlRunner(ctx: DynamicsContext, deps: ActionDependencie
 
     const run = document.createElement('button'); run.type = 'button'; run.className = 'd365lu-btn primary'; run.textContent = 'Run';
     const setBusy = (busy: boolean) => { run.disabled = busy; if (busy) run.setAttribute('aria-busy', 'true'); else run.removeAttribute('aria-busy'); progress.hidden = !busy; run.replaceChildren(); if (busy) { const spin = document.createElement('span'); spin.className = 'd365lu-spin'; run.append(spin, document.createTextNode('Running…')); } else run.textContent = 'Run'; };
+    // Each result column's date behaviour (from its table's metadata), so dates show in the user's time zone.
+    let dates = new Map<string, DateColumn>();
+    const dateColumns = async (xml: string): Promise<Map<string, DateColumn>> => {
+      if (typeof deps.metadata.getDateColumns !== 'function') return new Map();
+      const { columns, tables } = fetchColumns(xml); const names = [...new Set([...columns.values()].map(column => column.table).concat([...tables.values()]))];
+      const loaded = new Map(await Promise.all(names.map(async table => [table, await deps.metadata.getDateColumns(table).catch(() => undefined)] as const)));
+      const result = new Map<string, DateColumn>();
+      for (const [key, { table, field }] of columns) { const date = loaded.get(table)?.get(field); if (date) result.set(key, date); }
+      // all-attributes: columns come back by field name, or alias.field in an aliased link-entity
+      for (const [alias, table] of tables) loaded.get(table)?.forEach((date, field) => { const key = alias ? `${alias}.${field}` : field; if (!result.has(key) && !columns.has(key)) result.set(key, date); });
+      return result;
+    };
     const execute = async () => {
       if (run.disabled) return;
       const request = ++generation; const stale = () => closed || request !== generation;
@@ -112,6 +145,7 @@ export function openFetchXmlRunner(ctx: DynamicsContext, deps: ActionDependencie
       error.textContent = ''; setBusy(true);
       try {
         let xml = compactFetchXml(editor.value); const entity = extractFetchEntity(xml); const paging = autoPages(xml);
+        const datesLoading = dateColumns(xml).catch(() => new Map<string, DateColumn>()); // alongside the query; paging keeps the same tables
         const metadata = await deps.metadata.getTable(entity); if (stale()) return;
         const page = async (query: string): Promise<DynamicObject> => {
           const path = fetchXmlPath(metadata.EntitySetName, query);
@@ -121,6 +155,7 @@ export function openFetchXmlRunner(ctx: DynamicsContext, deps: ActionDependencie
         let response = await page(xml); if (stale()) return; rows = [...(response.value ?? [])]; let pages = 1;
         while (paging && pages < MAX_PAGES && !stale()) { const next = nextPageXml(xml, response, pages); if (!next) break; xml = next; response = await page(xml); if (stale()) return; rows.push(...(response.value ?? [])); pages++; }
         const partial = response[MORE] === true;
+        const loadedDates = await datesLoading; if (stale()) return; dates = loadedDates;
         show(view);
         count.textContent = `${rows.length} result${rows.length === 1 ? '' : 's'}${pages > 1 ? ` across ${pages} pages` : ''}${partial ? (paging ? ` · Partial results: more rows are available; stopped at the ${MAX_PAGES}-page limit.` : ' · More rows are available (this query sets its own page, top or count).') : ''}`;
         deps.ui.toast(`FetchXML returned ${rows.length} rows${partial ? `; partial results${paging ? ` at the ${MAX_PAGES}-page limit` : ''}. Narrow your query to retrieve the remaining rows.` : ''}`, partial ? 'warning' : 'success');

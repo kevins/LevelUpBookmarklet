@@ -3,6 +3,7 @@ import { available, openUrl, recordAvailable } from '../core/xrm-helpers';
 import { localizedLabel } from '../core/metadata-service';
 import { recordUrl } from '../core/url-service';
 import { openWhenReady } from '../core/popup';
+import { formatMoment } from '../core/dates';
 
 const def = (action: Omit<ActionDefinition, 'category'>): ActionDefinition => ({ ...action, category: 'form' });
 const yesNo = (value: unknown) => value == null ? '' : (typeof value === 'object' && value ? (value as Record<string, unknown>).Value ?? value : value) ? 'Yes' : 'No';
@@ -37,7 +38,7 @@ export const recordActions: ActionDefinition[] = [
     const rows: InfoRow[] = [
       { label: 'Record ID', value: ctx.entityId, copy: true }, { label: 'Table Logical Name', value: table.LogicalName, copy: true }, { label: 'Table Display Name', value: localizedLabel(table.DisplayName) }, { label: 'Primary Name', value: table.PrimaryNameAttribute ? row[table.PrimaryNameAttribute] : '' },
       { label: 'Record URL', value: recordUrl(ctx), copy: true }, { label: 'Web API URL', value: apiUrl, copy: true }, { label: 'State', value: `${row.statecode ?? ''} ${formatted('statecode') ?? ''}`.trim() }, { label: 'Status', value: `${row.statuscode ?? ''} ${formatted('statuscode') ?? ''}`.trim() },
-      { label: 'Created On', value: row.createdon }, lookupRow('Created By', 'createdby'), { label: 'Modified On', value: row.modifiedon }, lookupRow('Modified By', 'modifiedby'), lookupRow('Owner', 'ownerid'),
+      { label: 'Created On', value: row.createdon ? formatMoment(row.createdon) : '' }, lookupRow('Created By', 'createdby'), { label: 'Modified On', value: row.modifiedon ? formatMoment(row.modifiedon) : '' }, lookupRow('Modified By', 'modifiedby'), lookupRow('Owner', 'ownerid'),
       lookupRow('Owning Business Unit', 'owningbusinessunit'), lookupRow('Owning User', 'owninguser'), lookupRow('Owning Team', 'owningteam'), { label: 'Version', value: row.versionnumber ?? row['@odata.etag'] },
       { label: 'Form ID', value: ctx.formId }, { label: 'App ID', value: ctx.appId }, { label: 'Raw Web API Payload', value: JSON.stringify(row, null, 2), copy: true }
     ];

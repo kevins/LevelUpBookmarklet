@@ -1,5 +1,7 @@
 import type { ActionDependencies, ActionResult, ColumnMetadata, DynamicsContext } from '../core/types';
 import { localizedLabel } from '../core/metadata-service';
+import { formatMoment, formatStoredDate, isDateText } from '../core/dates';
+import type { DateColumn } from '../core/dates';
 import { recordUrl } from '../core/url-service';
 
 type Data = Record<string, unknown>;
@@ -10,8 +12,12 @@ const formatted = '@OData.Community.Display.V1.FormattedValue';
 const guid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const data = (value: unknown): Data => value && typeof value === 'object' && !Array.isArray(value) ? value as Data : {};
 const text = (value: unknown): string => value === undefined ? 'Not set' : value === null ? 'Empty' : value === '' ? '""' : typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value);
-const valueText = (row: Data, key: string): string => {
-  const raw = text(row[key]), label = row[`${key}${formatted}`];
+const valueText = (row: Data, key: string, dates?: Map<string, DateColumn>): string => {
+  const raw = text(row[key]), label = row[`${key}${formatted}`], column = dates?.get(fieldName(key));
+  // Date columns: as the user reads them, without the raw UTC time. Before the columns' behaviours load, Dataverse's own
+  // text. A text column that only looks like a date (no date metadata, no formatted value) is shown as stored.
+  if (isDateText(row[key]) && column) return formatStoredDate(row[key], column) ?? raw;
+  if (isDateText(row[key]) && typeof label === 'string' && label) return label;
   return typeof label === 'string' && label !== raw ? `${label} (${raw})` : raw;
 };
 const fieldName = (key: string): string => /^_(.+)_value$/.exec(key)?.[1] ?? key;
@@ -30,11 +36,11 @@ const userName = (summary: Summary, calling = false): string => String(summary[`
 
 // The bound detail request is correlated by audit ID. RetrieveRecordChangeHistory
 // omits AuditRecord in Web API responses, so it cannot safely provide who/when.
-export function auditChanges(detail: Data): Change[] {
+export function auditChanges(detail: Data, dates?: Map<string, DateColumn>): Change[] {
   if (String(detail['@odata.type'] ?? '').endsWith('AttributeAuditDetail') || 'OldValue' in detail || 'NewValue' in detail) {
     const old = data(detail.OldValue), current = data(detail.NewValue);
     const keys = [...new Set([...Object.keys(old), ...Object.keys(current)])].filter(key => !key.includes('@'));
-    const rows = keys.map(key => ({ field: fieldName(key), before: valueText(old, key), after: valueText(current, key) }));
+    const rows = keys.map(key => ({ field: fieldName(key), before: valueText(old, key, dates), after: valueText(current, key, dates) }));
     const deleted = data(detail.DeletedAttributes);
     if (Number(deleted.Count) > 0) rows.push({ field: 'Deleted columns', before: text(deleted.Values ?? deleted.Keys), after: 'Column no longer exists' });
     if (Array.isArray(detail.InvalidNewValueAttributes) && detail.InvalidNewValueAttributes.length) rows.push({ field: 'Invalid attempted changes', before: 'Not applied', after: text(detail.InvalidNewValueAttributes) });
@@ -45,7 +51,8 @@ export function auditChanges(detail: Data): Change[] {
     { field: 'Principal', before: '', after: text(detail.Principal) }
   ];
   if ('OldRolePrivileges' in detail || 'NewRolePrivileges' in detail) return [{ field: 'Role privileges', before: text(detail.OldRolePrivileges), after: text(detail.NewRolePrivileges) }];
-  return Object.entries(detail).filter(([key]) => !key.startsWith('@') && key !== 'AuditRecord').map(([key, value]) => ({ field: key, before: '', after: text(value) }));
+  // Other details (for example a user's sign-in, UserAccessAuditDetail.AccessTime): their moments in the user's time zone.
+  return Object.entries(detail).filter(([key]) => !key.startsWith('@') && key !== 'AuditRecord').map(([key, value]) => ({ field: key, before: '', after: (typeof value === 'string' && value.includes('T') ? formatStoredDate(value) : undefined) ?? text(value) }));
 }
 
 export function auditNextLink(next: unknown, clientUrl: string): string | undefined {
@@ -79,6 +86,7 @@ export async function auditHistory(ctx: DynamicsContext, deps: ActionDependencie
     const start = element('div', '', 'd365lu-foot-start'), end = element('div', '', 'd365lu-foot-end'); footer.append(start, end);
     const button = (label: string, click: () => void, where: HTMLElement = end) => { const node = element('button', label, 'd365lu-btn'); node.type = 'button'; node.onclick = click; where.append(node); return node; };
     let entries: Entry[] = [], next: string | undefined = initial, finished = false, closed = false, busy = false, offset = 0, runController: AbortController | undefined, renderTimer: ReturnType<typeof setTimeout> | undefined;
+    let dates: Map<string, DateColumn> | undefined;
     let labels = new Map<string, string>(), schemaNames = new Map<string, string>(), notice = '', pageError = '', totalTimer: ReturnType<typeof setTimeout> | undefined, cardsSignature = '';
     const seenIds = new Set<string>(), seenPages = new Set<string>(), expanded = new Set<string>();
     const refresh = button('Refresh', () => { entries = []; next = initial; finished = false; offset = 0; seenIds.clear(); seenPages.clear(); expanded.clear(); void run(false); }, start);
@@ -89,9 +97,10 @@ export async function auditHistory(ctx: DynamicsContext, deps: ActionDependencie
     button('Close', close);
 
     // Parsed once per event: the list re-renders while details stream in.
-    const changes = (entry: Entry) => entry.detail ? (entry.changes ??= auditChanges(entry.detail)) : [];
-    const changeText = (change: Change) => `${labels.get(change.field) ?? ''} ${schemaNames.get(change.field) ?? ''} ${change.field} ${change.before} ${change.after}`.toLocaleLowerCase();
-    const headerText = (entry: Entry) => `${entry.summary.createdon ?? ''} ${userName(entry.summary)} ${userName(entry.summary, true)} ${eventName(entry.summary)} ${entry.summary.auditid}`.toLocaleLowerCase();
+    const changes = (entry: Entry) => entry.detail ? (entry.changes ??= auditChanges(entry.detail, dates)) : [];
+    const changeText = (change: Change) => `${labels.get(change.field) ?? ''} ${schemaNames.get(change.field) ?? ''} ${change.field} ${change.before} ${change.after}`.toLocaleLowerCase().replace(/\s+/g, ' ');
+    const when = (summary: Summary) => { const date = new Date(String(summary.createdon ?? '')); return Number.isNaN(date.getTime()) ? text(summary.createdon) : formatMoment(date); };
+    const headerText = (entry: Entry) => `${when(entry.summary)} ${userName(entry.summary)} ${userName(entry.summary, true)} ${eventName(entry.summary)} ${entry.summary.auditid}`.toLocaleLowerCase().replace(/\s+/g, ' ');
     const options = (select: HTMLSelectElement, choices: [string, string][], empty: string) => {
       // Rebuilt only when the choices change, so an open dropdown isn't replaced under the pointer while loading.
       const signature = JSON.stringify([...new Map(choices)]); if (select.dataset.choices === signature) return; select.dataset.choices = signature;
@@ -103,7 +112,7 @@ export async function auditHistory(ctx: DynamicsContext, deps: ActionDependencie
       if (closed) return;
       options(user, entries.map(entry => [String(entry.summary._userid_value ?? ''), userName(entry.summary)]), 'All users');
       options(action, entries.map(entry => [String(entry.summary.action ?? ''), eventName(entry.summary)]), 'All events');
-      const needle = search.value.trim().toLocaleLowerCase(), start = from.value ? new Date(`${from.value}T00:00:00`).getTime() : -Infinity, end = to.value ? new Date(`${to.value}T23:59:59.999`).getTime() : Infinity;
+      const needle = search.value.trim().toLocaleLowerCase().replace(/\s+/g, ' '), start = from.value ? new Date(`${from.value}T00:00:00`).getTime() : -Infinity, end = to.value ? new Date(`${to.value}T23:59:59.999`).getTime() : Infinity;
       const filtered = entries.filter(entry => {
         const when = new Date(String(entry.summary.createdon ?? '')).getTime();
         return (!user.value || String(entry.summary._userid_value) === user.value) && (!action.value || String(entry.summary.action) === action.value) && (!from.value && !to.value || when >= start && when <= end) && (!needle || headerText(entry).includes(needle) || changes(entry).some(change => changeText(change).includes(needle)));
@@ -130,7 +139,7 @@ export async function auditHistory(ctx: DynamicsContext, deps: ActionDependencie
       results.replaceChildren();
       for (const entry of visible) {
         const summary = entry.summary, card = element('section', '', 'audit-card'), heading = element('div', '', 'audit-heading'), date = new Date(String(summary.createdon ?? ''));
-        const time = element('time', Number.isNaN(date.getTime()) ? text(summary.createdon) : date.toLocaleString()); time.title = String(summary.createdon ?? '');
+        const time = element('time', when(summary)); if (!Number.isNaN(date.getTime())) time.dateTime = date.toISOString();
         const who = userName(summary), caller = userName(summary, true);
         const tone = ({ 1: ' ok', 2: ' brand', 3: ' bad' } as Record<string, string>)[String(summary.action)] ?? '';
         // Who made the change opens their user record (a new tab, so this history stays open).
@@ -225,6 +234,10 @@ export async function auditHistory(ctx: DynamicsContext, deps: ActionDependencie
     void deps.metadata.getColumns(entity).then((columns: ColumnMetadata[]) => {
       if (closed) return; labels = new Map(columns.map(column => [column.LogicalName, localizedLabel(column.DisplayName)])); schemaNames = new Map(columns.map(column => [column.LogicalName, column.SchemaName])); schedule();
     }).catch(() => { /* Logical names remain usable when metadata access is unavailable. */ });
+    // Date columns' behaviours: old and new dates then show as the form shows them (moments in the user's time zone).
+    if (typeof deps.metadata.getDateColumns === 'function') void deps.metadata.getDateColumns(entity).then(columns => {
+      if (closed) return; dates = columns; entries.forEach(entry => { delete entry.changes; }); cardsSignature = ''; schedule();
+    }).catch(() => { /* Dataverse's formatted text is used instead. */ });
     void run(false);
     return () => { closed = true; runController?.abort(); if (totalTimer) clearTimeout(totalTimer); if (renderTimer) clearTimeout(renderTimer); entries = []; };
   }, { size: 'xl', subtitle: name ? `${name} · ${entity}` : `${entity} · ${recordId.toLowerCase()}`, dismissible: false, bodyClass: 'd365lu-dialog-pad d365lu-audit' });

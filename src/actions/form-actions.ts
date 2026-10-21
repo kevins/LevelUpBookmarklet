@@ -1,4 +1,5 @@
 import type { ActionDefinition, ActionDependencies, ColumnMetadata, DynamicObject, DynamicsContext, TableCell, UiTable } from '../core/types';
+import { isDate } from '../core/dates';
 import { attributes, collectionItems, controlAttribute, controls, copyText, displayValue, fieldContainer, fieldLabel, formAvailable, labelText, recordAvailable, tabs } from '../core/xrm-helpers';
 import { recordUrl } from '../core/url-service';
 import { openWhenReady } from '../core/popup';
@@ -168,7 +169,7 @@ export const formActions: ActionDefinition[] = [
     const read = <T,>(get: () => T): T | '' => { try { return get() ?? ''; } catch { return ''; } };
     const rows: TableCell[][] = attributes(ctx).map(attribute => {
       const name = attribute.getName?.() ?? ''; const control = byName.get(name); const raw = read(() => attribute.getValue?.());
-      return [labelText(attribute, control), name, read(() => attribute.getAttributeType?.()), raw === '' || raw == null ? '' : typeof raw === 'object' ? JSON.stringify(raw) : String(raw), displayValue(attribute), Boolean(read(() => attribute.getIsDirty?.())), read(() => attribute.getRequiredLevel?.()), control ? read(() => control.getVisible?.()) : '', control ? read(() => control.getDisabled?.()) : ''];
+      return [labelText(attribute, control), name, read(() => attribute.getAttributeType?.()), raw === '' || raw == null ? '' : isDate(raw) ? (Number.isNaN(raw.getTime()) ? String(raw) : raw.toISOString()) : typeof raw === 'object' ? JSON.stringify(raw) : String(raw), displayValue(attribute), Boolean(read(() => attribute.getIsDirty?.())), read(() => attribute.getRequiredLevel?.()), control ? read(() => control.getVisible?.()) : '', control ? read(() => control.getDisabled?.()) : ''];
     });
     deps.ui.table(`All Fields (${rows.length})`, ['Label','Logical Name','Type','Raw Value','Formatted Value','Dirty?','Required?','Visible?','Disabled?'], rows, true, { subtitle: `${ctx.entityName ?? ''}${ctx.entityId ? ` · ${ctx.entityId}` : ''}` }); return { message: `${rows.length} fields displayed`, kind: 'info' };
   }}),
@@ -199,7 +200,7 @@ async function cloneRecord(ctx: DynamicsContext, deps: ActionDependencies) {
       // Id, name and table: the table is needed for customer, owner and multi-table lookups, and accepted for all.
       params[name] = String(value[0].id).replace(/[{}]/g, ''); params[`${name}name`] = String(value[0].name ?? ''); params[`${name}type`] = String(value[0].entityType ?? '');
     } else if (type === 'multiselectoptionset' && Array.isArray(value)) params[name] = `[${value.join(',')}]`;
-    else params[name] = value instanceof Date ? value.toISOString() : String(value);
+    else params[name] = isDate(value) ? value.toISOString() : String(value);
     if (type === 'memo' || String(params[name]).length > 500) long.push(name);
   }
   // The values travel in the new window's address: drop the longest text first when it gets too long.

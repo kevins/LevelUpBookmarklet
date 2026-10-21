@@ -1,4 +1,5 @@
 import type { AvailabilityResult, DynamicObject, DynamicsContext } from './types';
+import { formatDay, formatMoment, isDate } from './dates';
 
 export const available = (): AvailabilityResult => ({ available: true });
 export const connected = (ctx: DynamicsContext): AvailabilityResult => ctx.xrm ? available() : ({ available: false, reason: 'Available only on a supported Dynamics / Power Apps page.' });
@@ -72,8 +73,8 @@ export function displayValue(attribute: DynamicObject): string {
     if (type === 'optionset' || type === 'boolean') return attribute.getText?.() ?? String(value);
     if (type === 'multiselectoptionset') { const text = attribute.getText?.(); return Array.isArray(text) ? text.join(', ') : text ?? String(value); }
     if (type === 'lookup' && Array.isArray(value)) return value.map(item => `${item.name ?? ''} (${String(item.id ?? '').replace(/[{}]/g, '')})`).join(', ');
-    // In the user's time zone, as the form shows it (the raw value keeps the ISO time); date-only columns as dates.
-    if (value instanceof Date) return attribute.getFormat?.() === 'date' ? value.toLocaleDateString() : value.toLocaleString();
+    // In the user's time zone, as the form shows it, on a 12-hour clock (the raw value keeps the ISO time); date-only columns as dates.
+    if (isDate(value)) return attribute.getFormat?.() === 'date' ? formatDay(value) : formatMoment(value, false);
     return typeof value === 'object' ? JSON.stringify(value) : String(value);
   } catch { return '[unavailable]'; }
 }
