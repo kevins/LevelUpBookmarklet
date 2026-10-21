@@ -1,6 +1,6 @@
 {
   "name": "d365-levelup-bookmarklet",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Level Up for Dynamics 365 / Power Apps as a bookmarklet",
   "license": "MIT",
   "private": true,

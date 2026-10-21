@@ -283,7 +283,7 @@ function tableSection(config: UiTable, index: number, searchable: boolean, ui: U
     label.append(icon, input, clear); section.append(label);
   }
   section.append(table);
-  section.querySelectorAll<HTMLButtonElement>('.d365lu-copy[data-d365lu-copy-value]').forEach(copy => { copy.onclick = () => void copyText(copy.dataset.d365luCopyValue ?? '').then(() => ui.toast('OptionSet Value copied', 'success'), error => ui.toast(String(error), 'error')); });
+  section.querySelectorAll<HTMLButtonElement>('.d365lu-copy[data-d365lu-copy-value]').forEach(copy => { copy.onclick = () => void copyText(copy.dataset.d365luCopyValue ?? '').then(() => ui.toast(`${copy.dataset.d365luCopyLabel ?? 'OptionSet Value'} copied`, 'success'), error => ui.toast(String(error), 'error')); });
   return section;
 }
 

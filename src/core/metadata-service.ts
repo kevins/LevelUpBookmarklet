@@ -3,7 +3,7 @@ import type { DateBehavior, DateColumn } from './dates';
 import { DynamicsApi } from './dynamics-api';
 
 const TABLE_SELECT = 'MetadataId,LogicalName,SchemaName,EntitySetName,ObjectTypeCode,PrimaryIdAttribute,PrimaryNameAttribute,DisplayName,DisplayCollectionName,OwnershipType,IsCustomEntity,IsActivity,IsActivityParty,IsAuditEnabled,IsCustomizable,IsManaged,IntroducedVersion,ChangeTrackingEnabled,EntityColor';
-const COLUMN_SELECT = 'MetadataId,LogicalName,SchemaName,AttributeType,DisplayName,RequiredLevel,IsValidForCreate,IsValidForUpdate,AttributeOf,IsLogical,IsSecured';
+const COLUMN_SELECT = 'MetadataId,LogicalName,SchemaName,AttributeType,DisplayName,RequiredLevel,IsValidForCreate,IsValidForUpdate,IsValidForRead,AttributeOf,IsLogical,IsSecured,AttributeTypeName';
 const literal = (value: string) => value.replace(/'/g, "''");
 
 export function localizedLabel(value: unknown): string {

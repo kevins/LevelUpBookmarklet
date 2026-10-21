@@ -138,6 +138,9 @@ export interface ColumnMetadata {
   IsLogical?: boolean;
   /** Protected by field-level security. */
   IsSecured?: boolean;
+  IsValidForRead?: boolean;
+  /** The specific kind where AttributeType is general, e.g. MultiSelectPicklistType, ImageType or FileType for 'Virtual'. */
+  AttributeTypeName?: { Value?: string } | null;
 }
 
 export interface SolutionInfo {

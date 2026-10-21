@@ -1,5 +1,6 @@
 import type { ActionDefinition, ActionDependencies, ColumnMetadata, DynamicObject, DynamicsContext, TableCell, UiTable } from '../core/types';
-import { isDate } from '../core/dates';
+import { formatStoredDate, isDate } from '../core/dates';
+import { localizedLabel } from '../core/metadata-service';
 import { attributes, collectionItems, controlAttribute, controls, copyText, displayValue, fieldContainer, fieldLabel, formAvailable, labelText, recordAvailable, tabs } from '../core/xrm-helpers';
 import { recordUrl } from '../core/url-service';
 import { openWhenReady } from '../core/popup';
@@ -164,21 +165,100 @@ export const formActions: ActionDefinition[] = [
     const handler = (event: DynamicObject) => { const args = event.getEventArgs?.(); if ([2,70].includes(args?.getSaveMode?.())) args.preventDefault?.(); };
     deps.cleanup.run(); ctx.form?.data?.entity?.addOnSave?.(handler); deps.cleanup.add(() => ctx.form?.data?.entity?.removeOnSave?.(handler)); return { message: 'Form refreshed; auto-save blocked for this session' };
   }}),
-  def({ id: FORM_ACTION_IDS[11], label: 'Show All Fields', description: 'Show a searchable read-only table of form fields and values.', icon: 'table', availability: form, execute: (ctx, deps) => {
-    const byName = new Map<string, DynamicObject>(); for (const control of controls(ctx)) { const name = controlAttribute(control)?.getName?.(); if (name && !byName.has(name)) byName.set(name, control); }
-    const read = <T,>(get: () => T): T | '' => { try { return get() ?? ''; } catch { return ''; } };
-    const rows: TableCell[][] = attributes(ctx).map(attribute => {
-      const name = attribute.getName?.() ?? ''; const control = byName.get(name); const raw = read(() => attribute.getValue?.());
-      return [labelText(attribute, control), name, read(() => attribute.getAttributeType?.()), raw === '' || raw == null ? '' : isDate(raw) ? (Number.isNaN(raw.getTime()) ? String(raw) : raw.toISOString()) : typeof raw === 'object' ? JSON.stringify(raw) : String(raw), displayValue(attribute), Boolean(read(() => attribute.getIsDirty?.())), read(() => attribute.getRequiredLevel?.()), control ? read(() => control.getVisible?.()) : '', control ? read(() => control.getDisabled?.()) : ''];
-    });
-    deps.ui.table(`All Fields (${rows.length})`, ['Label','Logical Name','Type','Raw Value','Formatted Value','Dirty?','Required?','Visible?','Disabled?'], rows, true, { subtitle: `${ctx.entityName ?? ''}${ctx.entityId ? ` · ${ctx.entityId}` : ''}` }); return { message: `${rows.length} fields displayed`, kind: 'info' };
-  }}),
+  def({ id: FORM_ACTION_IDS[11], label: 'Show All Fields', description: 'Show a searchable table of every field of the record, also those not on the form, with their values.', icon: 'table', availability: form, execute: showAllFields }),
   def({ id: FORM_ACTION_IDS[12], label: 'Open Form Editor', description: 'Open the current form in Power Apps Maker.', icon: 'edit', availability: form, newTab: true, execute: async (ctx, deps) => {
     if (!ctx.formId || !ctx.entityName) throw new Error('The current form ID could not be resolved.'); const solution = deps.solutions.get();
     await openWhenReady(ctx, solution.then(found => deps.maker.form(ctx.entityName!, ctx.formId!, found.solutionId))); return { message: `Form editor opened in ${(await solution).friendlyName}` };
   }}),
   def({ id: FORM_ACTION_IDS[13], label: 'Table Processes', description: 'View active workflows, rules, flows, actions, BPFs and custom APIs.', icon: 'tableProcess', availability: form, execute: async (ctx, deps) => tableProcesses(ctx, deps) })
 ];
+
+/** Dataverse column types by the names the form uses for them. */
+const FORM_TYPE: Record<string, string> = { Boolean: 'boolean', Customer: 'lookup', DateTime: 'datetime', Decimal: 'decimal', Double: 'double', Integer: 'integer', BigInt: 'integer', Lookup: 'lookup', Memo: 'memo', Money: 'money', Owner: 'lookup', Picklist: 'optionset', State: 'optionset', Status: 'optionset', String: 'string', Uniqueidentifier: 'uniqueidentifier', PartyList: 'partylist' };
+const FORMATTED_VALUE = '@OData.Community.Display.V1.FormattedValue', LOOKUP_TABLE = '@Microsoft.Dynamics.CRM.lookuplogicalname';
+const RECORD_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** Activity party roles (participationtypemask) by the party-list column they fill. */
+const PARTY_COLUMN: Record<number, string> = { 1: 'from', 2: 'to', 3: 'cc', 4: 'bcc', 5: 'requiredattendees', 6: 'optionalattendees', 7: 'organizer', 10: 'resources', 11: 'customers' };
+const LONG_CELL = 500;
+
+/** Long text (an email body, JSON) as a short preview with its length and a button that copies all of it. */
+function longCell(text: string): TableCell {
+  if (text.length <= LONG_CELL) return text;
+  const cell = document.createElement('span'); cell.className = 'd365lu-copy-cell'; const preview = document.createElement('span');
+  preview.textContent = `${text.slice(0, LONG_CELL)}… (${text.length.toLocaleString()} characters)`;
+  const copy = document.createElement('button'); copy.type = 'button'; copy.className = 'd365lu-copy'; copy.textContent = 'Copy'; copy.title = 'Copy the whole value';
+  copy.dataset.d365luCopyValue = text; copy.dataset.d365luCopyLabel = 'Value'; cell.append(preview, copy); return cell;
+}
+
+/** A column's type as the form names it; multi-select, image and file columns by their specific kind. */
+function columnType(column: ColumnMetadata | undefined, lookup = false): string {
+  const kind = column?.AttributeTypeName?.Value;
+  if (kind === 'MultiSelectPicklistType') return 'multiselectoptionset'; if (kind === 'ImageType') return 'image'; if (kind === 'FileType') return 'file';
+  return column?.AttributeType ? FORM_TYPE[column.AttributeType] ?? column.AttributeType.toLowerCase() : lookup ? 'lookup' : '';
+}
+
+/**
+ * Every field of the record. The form's fields come from the form: their current, possibly unsaved, values, and
+ * whether they are dirty, required, visible or locked. The record's other columns come from its saved copy in
+ * Dataverse, so a column that is on no form shows too; party lists from the activity's parties; on a new record,
+ * the table's other columns without values.
+ */
+async function showAllFields(ctx: DynamicsContext, deps: ActionDependencies) {
+  const byName = new Map<string, DynamicObject>(); for (const control of controls(ctx)) { const name = controlAttribute(control)?.getName?.(); if (name && !byName.has(name)) byName.set(name, control); }
+  const read = <T,>(get: () => T): T | '' => { try { return get() ?? ''; } catch { return ''; } };
+  const rows: TableCell[][] = []; const onForm = new Set<string>();
+  for (const attribute of attributes(ctx)) {
+    const name = attribute.getName?.() ?? ''; const control = byName.get(name); const raw = read(() => attribute.getValue?.()); onForm.add(name);
+    rows.push([labelText(attribute, control), name, read(() => attribute.getAttributeType?.()), longCell(raw === '' || raw == null ? '' : isDate(raw) ? (Number.isNaN(raw.getTime()) ? String(raw) : raw.toISOString()) : typeof raw === 'object' ? JSON.stringify(raw) : String(raw)), longCell(displayValue(attribute)), true, Boolean(read(() => attribute.getIsDirty?.())), read(() => attribute.getRequiredLevel?.()), control ? read(() => control.getVisible?.()) : '', control ? read(() => control.getDisabled?.()) : '']);
+  }
+  // The record behind the listed fields: the form's own (a quick create shown over a record is another record).
+  const formEntity = ctx.form?.data?.entity;
+  const entity = String(read(() => formEntity?.getEntityName?.()) || ctx.entityName || '');
+  const id = String(read(() => formEntity?.getId?.()) || ctx.entityId || '').replace(/[{}]/g, ''); const saved = RECORD_ID.test(id);
+  const formCount = rows.length; const others: TableCell[][] = []; let problem = '';
+  if (entity) {
+    try {
+      const [table, columns, dates] = await Promise.all([
+        deps.metadata.getTable(entity), deps.metadata.getColumns(entity).catch(() => [] as ColumnMetadata[]),
+        typeof deps.metadata.getDateColumns === 'function' ? deps.metadata.getDateColumns(entity).catch(() => undefined) : Promise.resolve(undefined)
+      ]);
+      const metadata = new Map(columns.map(column => [column.LogicalName, column])); const listed = new Set<string>();
+      const add = (name: string, column: ColumnMetadata | undefined, type: string, raw: string, shown: string) => {
+        listed.add(name); const secured = column?.IsSecured === true;
+        others.push([localizedLabel(column?.DisplayName) || name, name, secured ? `${type} · secured` : type, longCell(raw), longCell(shown || (secured && !raw ? '(field-secured: empty, or hidden from you)' : '')), false, '', '', '', '']);
+      };
+      let parties: DynamicObject[] | undefined;
+      if (saved) {
+        const record = await deps.api.get<DynamicObject>(`${table.EntitySetName}(${id})`, true); // every column the user may read
+        for (const key of Object.keys(record)) {
+          if (key.includes('@')) continue;
+          const name = /^_(.+)_value$/.exec(key)?.[1] ?? key; if (onForm.has(name)) continue;
+          const column = metadata.get(name), value: unknown = record[key], formatted = record[`${key}${FORMATTED_VALUE}`], target = record[`${key}${LOOKUP_TABLE}`], date = dates?.get(name);
+          const raw = value == null ? '' : typeof value === 'object' ? JSON.stringify(value) : String(value);
+          // As the form would show it: dates in the user's time zone, lookups as name (table: id), choices and money by their text.
+          const shown = value == null ? '' : date ? formatStoredDate(value, date) ?? raw : key !== name ? `${typeof formatted === 'string' ? formatted : ''} (${typeof target === 'string' ? `${target}: ` : ''}${raw})`.trim() : typeof formatted === 'string' ? formatted : raw;
+          add(name, column, columnType(column, key !== name), raw, shown);
+        }
+        // Party lists (from, to, attendees…) aren't columns of the record in the Web API: they come from its activity parties.
+        if (table.IsActivity && columns.some(column => column.AttributeType === 'PartyList' && !onForm.has(column.LogicalName)))
+          parties = (await deps.api.get<{ value?: DynamicObject[] }>(`activityparties?$select=participationtypemask,addressused,_partyid_value&$filter=_activityid_value eq ${id}`, true).catch(() => undefined))?.value;
+      }
+      // Columns the record data doesn't carry (party lists, images), and on a new record every other column, empty.
+      for (const column of columns) {
+        const name = column.LogicalName; if (onForm.has(name) || listed.has(name) || column.AttributeOf || column.IsValidForRead === false) continue;
+        const type = columnType(column); let raw = '', note = '';
+        if (type === 'partylist' && parties) raw = parties.filter(party => PARTY_COLUMN[Number(party.participationtypemask)] === name).map(party => String(party[`_partyid_value${FORMATTED_VALUE}`] ?? party.addressused ?? party._partyid_value ?? '')).filter(Boolean).join('; ');
+        else if (saved) note = type === 'partylist' ? '(participants could not be read)' : type === 'image' ? '(image: not part of the record data)' : '(not returned by the Web API)';
+        add(name, column, type, raw, raw || note);
+      }
+    } catch (error) { problem = error instanceof Error ? error.message : String(error); }
+  }
+  others.sort((a, b) => String(a[0]).localeCompare(String(b[0]))); rows.push(...others);
+  const where = `${entity}${saved ? ` · ${id}` : id ? '' : ' · new record'}`;
+  const subtitle = problem ? `${where} · ${formCount} on the form` : saved ? `${where} · ${formCount} on the form, ${others.length} more on the record` : `${where} · ${formCount} on the form, ${others.length} more columns (no values until it is saved)`;
+  deps.ui.table(`All Fields (${rows.length})`, ['Label', 'Logical Name', 'Type', 'Raw Value', 'Formatted Value', 'On Form?', 'Dirty?', 'Required?', 'Visible?', 'Disabled?'], rows, true, { subtitle });
+  return problem ? { message: `Only the form's fields are shown: the record's other fields could not be read (${problem})`, kind: 'warning' as const } : { message: `${rows.length} fields displayed`, kind: 'info' as const };
+}
 
 async function cloneRecord(ctx: DynamicsContext, deps: ActionDependencies) {
   if (typeof ctx.xrm?.Navigation?.openForm !== 'function') throw new Error('Opening a new record form is unavailable on this page.');
